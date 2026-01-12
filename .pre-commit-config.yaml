@@ -25,3 +25,10 @@ repos:
         types: [python]
         pass_filenames: false
         always_run: true
+      - id: pytest-reimbursement-api
+        name: pytest (reimbursement_api)
+        entry: powershell.exe -NoProfile -Command "Set-Location services/reimbursement_api; python -m pytest"
+        language: system
+        types: [python]
+        pass_filenames: false
+        always_run: true

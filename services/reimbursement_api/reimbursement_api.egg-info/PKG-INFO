@@ -1,0 +1,9 @@
+Metadata-Version: 2.4
+Name: reimbursement_api
+Version: 0.1.0
+Summary: A reimbursement API service
+Requires-Dist: Flask
+Requires-Dist: Flask-SQLAlchemy
+Requires-Dist: alembic
+Requires-Dist: PyMySQL
+Requires-Dist: python-dotenv

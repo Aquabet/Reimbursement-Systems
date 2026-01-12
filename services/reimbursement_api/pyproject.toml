@@ -1,0 +1,39 @@
+[project]
+name = "reimbursement_api"
+version = "0.1.0"
+description = "A reimbursement API service"
+dependencies = [
+    "Flask",
+    "Flask-SQLAlchemy",
+    "alembic",
+    "PyMySQL",
+    "python-dotenv",
+]
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = "--strict-markers"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "B", "C4", "ISC", "TID", "ARG", "PERF", "PTH", "SIM", "UP", "YTT", "RSE", "RET", "DTZ", "ERA", "PL"]
+ignore = ["E501"] # Handled by formatter
+
+[tool.mypy]
+python_version = "3.10"
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+disallow_untyped_defs = true
+check_untyped_defs = true
+implicit_reexport = false
+strict_optional = true
+show_column_numbers = true
+show_error_codes = true
+pretty = true
+plugins = []
+ignore_missing_imports = true
