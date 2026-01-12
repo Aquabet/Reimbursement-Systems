@@ -14,3 +14,5 @@ reimbursement_api/domain/__init__.py
 reimbursement_api/domain/models.py
 reimbursement_api/infrastructure/__init__.py
 reimbursement_api/infrastructure/database.py
+tests/test_api.py
+tests/test_receipts.py

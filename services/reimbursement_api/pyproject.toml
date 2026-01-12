@@ -8,6 +8,7 @@ dependencies = [
     "alembic",
     "PyMySQL",
     "python-dotenv",
+    "boto3",
 ]
 
 [tool.pytest.ini_options]
@@ -37,3 +38,6 @@ show_error_codes = true
 pretty = true
 plugins = []
 ignore_missing_imports = true
+
+[tool.setuptools]
+packages = ["reimbursement_api"]

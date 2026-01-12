@@ -7,3 +7,4 @@ Requires-Dist: Flask-SQLAlchemy
 Requires-Dist: alembic
 Requires-Dist: PyMySQL
 Requires-Dist: python-dotenv
+Requires-Dist: boto3

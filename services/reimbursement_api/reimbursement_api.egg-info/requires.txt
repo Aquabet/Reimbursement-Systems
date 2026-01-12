@@ -3,3 +3,4 @@ Flask-SQLAlchemy
 alembic
 PyMySQL
 python-dotenv
+boto3
