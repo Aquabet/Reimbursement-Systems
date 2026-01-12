@@ -1,0 +1,255 @@
+version: '3.8'
+
+services:
+  # MySQL Database
+  mysql:
+    image: mysql:8.0
+    container_name: reimbursement-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: reimbursement_db
+      MYSQL_USER: dbadmin
+      MYSQL_PASSWORD: password
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "dbadmin", "-ppassword"]
+      timeout: 20s
+      retries: 10
+    networks:
+      - reimbursement-network
+
+  # LocalStack (AWS services mock)
+  localstack:
+    image: localstack/localstack:latest
+    container_name: reimbursement-localstack
+    environment:
+      - SERVICES=s3,sqs
+      - AWS_DEFAULT_REGION=us-east-1
+      - EDGE_PORT=4566
+      - DEBUG=1
+      - DATA_DIR=/tmp/localstack/data
+    ports:
+      - "4566:4566"
+      - "4510-4559:4510-4559"
+    volumes:
+      - localstack_data:/tmp/localstack
+    networks:
+      - reimbursement-network
+
+  # Report Service (原 reimbursement_api)
+  report-service:
+    build:
+      context: ./services/reimbursement_api
+      dockerfile: Dockerfile
+    container_name: reimbursement-report-service
+    environment:
+      FLASK_ENV: dev
+      DATABASE_URL: mysql+pymysql://dbadmin:password@mysql:3306/reimbursement_db
+      SECRET_KEY: dev-secret-key-change-in-production
+      JWT_SECRET_KEY: jwt-secret-key-change-in-production
+      S3_BUCKET_NAME: reimbursement-receipts
+      AWS_REGION: us-east-1
+      AWS_ENDPOINT_URL: http://localstack:4566
+      OCR_QUEUE_URL: http://localstack:4566/000000000000/reimbursement-ocr-queue
+      VALIDATION_QUEUE_URL: http://localstack:4566/000000000000/reimbursement-validation-queue
+    ports:
+      - "5000:5000"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    volumes:
+      - ./services/reimbursement_api:/app
+    networks:
+      - reimbursement-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Receipt Service
+  receipt-service:
+    build:
+      context: ./services/receipt_service
+      dockerfile: Dockerfile
+    container_name: reimbursement-receipt-service
+    environment:
+      FLASK_ENV: dev
+      DATABASE_URL: mysql+pymysql://dbadmin:password@mysql:3306/reimbursement_db
+      SECRET_KEY: dev-secret-key-change-in-production
+      JWT_SECRET_KEY: jwt-secret-key-change-in-production
+      S3_BUCKET_NAME: reimbursement-receipts
+      AWS_REGION: us-east-1
+      AWS_ENDPOINT_URL: http://localstack:4566
+      OCR_QUEUE_URL: http://localstack:4566/000000000000/reimbursement-ocr-queue
+      VALIDATION_QUEUE_URL: http://localstack:4566/000000000000/reimbursement-validation-queue
+      REVIEW_SERVICE_URL: http://review-service:5000
+    ports:
+      - "5001:5000"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      localstack:
+        condition: service_started
+      report-service:
+        condition: service_healthy
+    volumes:
+      - ./services/receipt_service:/app
+    networks:
+      - reimbursement-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Review Service
+  review-service:
+    build:
+      context: ./services/review_service
+      dockerfile: Dockerfile
+    container_name: reimbursement-review-service
+    environment:
+      FLASK_ENV: dev
+      DATABASE_URL: mysql+pymysql://dbadmin:password@mysql:3306/reimbursement_db
+      SECRET_KEY: dev-secret-key-change-in-production
+      JWT_SECRET_KEY: jwt-secret-key-change-in-production
+      AWS_REGION: us-east-1
+      AWS_ENDPOINT_URL: http://localstack:4566
+      RECEIPT_SERVICE_URL: http://receipt-service:5000
+      REPORT_SERVICE_URL: http://report-service:5000
+    ports:
+      - "5002:5000"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      report-service:
+        condition: service_healthy
+      receipt-service:
+        condition: service_healthy
+    volumes:
+      - ./services/review_service:/app
+    networks:
+      - reimbursement-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # API Gateway
+  api-gateway:
+    build:
+      context: ./services/api_gateway
+      dockerfile: Dockerfile
+    container_name: reimbursement-api-gateway
+    environment:
+      FLASK_ENV: dev
+      SECRET_KEY: dev-secret-key-change-in-production
+      JWT_SECRET_KEY: jwt-secret-key-change-in-production
+      REPORT_SERVICE_URL: http://report-service:5000
+      RECEIPT_SERVICE_URL: http://receipt-service:5000
+      REVIEW_SERVICE_URL: http://review-service:5000
+      LOG_LEVEL: INFO
+    ports:
+      - "8080:8080"
+    depends_on:
+      report-service:
+        condition: service_healthy
+      receipt-service:
+        condition: service_healthy
+      review-service:
+        condition: service_healthy
+    volumes:
+      - ./services/api_gateway:/app
+    networks:
+      - reimbursement-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # OCR Worker
+  ocr-worker:
+    build:
+      context: ./services/ocr_worker
+      dockerfile: Dockerfile
+    container_name: reimbursement-ocr-worker
+    environment:
+      FLASK_ENV: dev
+      DATABASE_URL: mysql+pymysql://dbadmin:password@mysql:3306/reimbursement_db
+      AWS_REGION: us-east-1
+      AWS_ENDPOINT_URL: http://localstack:4566
+      S3_BUCKET_NAME: reimbursement-receipts
+      OCR_QUEUE_URL: http://localstack:4566/000000000000/reimbursement-ocr-queue
+    depends_on:
+      mysql:
+        condition: service_healthy
+      localstack:
+        condition: service_started
+    volumes:
+      - ./services/ocr_worker:/app
+    networks:
+      - reimbursement-network
+    command: ["python", "-m", "ocr_worker.main"]
+
+  # Validation Worker
+  validation-worker:
+    build:
+      context: ./services/ocr_worker
+      dockerfile: Dockerfile
+    container_name: reimbursement-validation-worker
+    environment:
+      FLASK_ENV: dev
+      DATABASE_URL: mysql+pymysql://dbadmin:password@mysql:3306/reimbursement_db
+      AWS_REGION: us-east-1
+      AWS_ENDPOINT_URL: http://localstack:4566
+      VALIDATION_QUEUE_URL: http://localstack:4566/000000000000/reimbursement-validation-queue
+    depends_on:
+      mysql:
+        condition: service_healthy
+      localstack:
+        condition: service_started
+    volumes:
+      - ./services/ocr_worker:/app
+    networks:
+      - reimbursement-network
+    command: ["python", "-m", "ocr_worker.validation_main"]
+
+  # Initialization script
+  init:
+    build:
+      context: .
+      dockerfile: Dockerfile.init
+    container_name: reimbursement-init
+    depends_on:
+      mysql:
+        condition: service_healthy
+      localstack:
+        condition: service_started
+    environment:
+      AWS_REGION: us-east-1
+      AWS_ENDPOINT_URL: http://localstack:4566
+      S3_BUCKET_NAME: reimbursement-receipts
+    volumes:
+      - ./scripts:/scripts
+    networks:
+      - reimbursement-network
+    command: ["/scripts/init-localstack.sh"]
+
+volumes:
+  mysql_data:
+  localstack_data:
+
+networks:
+  reimbursement-network:
+    driver: bridge

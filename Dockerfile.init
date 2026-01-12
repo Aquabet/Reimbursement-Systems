@@ -1,0 +1,17 @@
+FROM alpine:latest
+
+# Install required packages
+RUN apk add --no-cache \
+    bash \
+    curl \
+    aws-cli
+
+WORKDIR /scripts
+
+# Copy initialization scripts
+COPY scripts/ /scripts/
+
+# Make scripts executable
+RUN chmod +x /scripts/*.sh
+
+CMD ["/bin/bash"]

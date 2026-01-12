@@ -12,7 +12,8 @@
       "Bash(python -m flask db migrate:*)",
       "Bash(python:*)",
       "Bash(find:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(chmod:*)"
     ]
   }
 }
