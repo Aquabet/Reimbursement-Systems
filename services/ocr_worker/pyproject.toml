@@ -6,7 +6,10 @@ dependencies = [
     "SQLAlchemy",
     "PyMySQL",
     "python-dotenv",
+    "boto3",
+    "httpx",
 ]
+
 
 [tool.setuptools]
 packages = ["ocr_worker"]

@@ -1,9 +1,10 @@
 import hashlib
 import os
 
-from reimbursement_api.domain.models import Receipt, Report
+from reimbursement_api.domain.models import OcrResult, Receipt, Report
 from reimbursement_api.infrastructure.database import db
 from reimbursement_api.infrastructure.local_storage import LocalStorage
+from reimbursement_api.infrastructure.message_queue import SqsMessageQueue
 from reimbursement_api.infrastructure.s3_storage import S3Storage
 
 
@@ -24,6 +25,7 @@ class ReceiptService:
             self.storage = S3Storage(os.environ.get("S3_BUCKET_NAME"))
         else:
             self.storage = LocalStorage(os.environ.get("UPLOAD_FOLDER", "uploads"))
+        self.message_queue = SqsMessageQueue()
 
     def create_receipt(self, file, report_id):
         file_hash = self._hash_file(file)
@@ -40,6 +42,21 @@ class ReceiptService:
         )
         db.session.add(new_receipt)
         db.session.commit()
+
+        # Create a pending OCR result and publish a job
+        ocr_result = OcrResult(receipt_id=new_receipt.id, status="PENDING")
+        db.session.add(ocr_result)
+        db.session.commit()
+
+        self.message_queue.send_message(
+            os.environ.get("SQS_QUEUE_URL"),
+            {
+                "receipt_id": new_receipt.id,
+                "storage_path": storage_path,
+                "filename": file.filename
+            }
+        )
+
         return new_receipt, False
 
     def _hash_file(self, file):

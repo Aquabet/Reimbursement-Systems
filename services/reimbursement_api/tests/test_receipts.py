@@ -10,7 +10,8 @@ from reimbursement_api.infrastructure.database import db
 
 
 @pytest.fixture
-def app():
+def app(mocker):
+    mocker.patch("boto3.client")
     # Set the UPLOAD_FOLDER for testing
     upload_folder = "test_uploads"
     os.environ["UPLOAD_FOLDER"] = upload_folder
@@ -84,3 +85,14 @@ def test_upload_receipt_no_report_id(client):
     assert response.status_code == 400  # noqa: PLR2004
     response_data = json.loads(response.data)
     assert "report_id is required" in response_data["error"]
+
+
+def test_upload_receipt_publishes_sqs_message(client, mocker):
+    """Test that uploading a new receipt publishes an SQS message."""
+    mock_send_message = mocker.patch("reimbursement_api.infrastructure.message_queue.SqsMessageQueue.send_message")
+
+    data = {"receipt": (BytesIO(b"my file contents"), "test.jpg"), "report_id": 1}
+    response = client.post("/v1/receipts/upload", data=data, content_type="multipart/form-data")
+
+    assert response.status_code == 201  # noqa: PLR2004
+    mock_send_message.assert_called_once()
