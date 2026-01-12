@@ -32,6 +32,10 @@ def create_app(config_name="default"):
     app.register_blueprint(reports_bp)
     app.register_blueprint(receipts_bp)
 
+    # Import and register blueprints
+    from reimbursement_api.api.health import health_bp
+    app.register_blueprint(health_bp)
+
     # Setup structured logging
     setup_structured_logging(app)
 
