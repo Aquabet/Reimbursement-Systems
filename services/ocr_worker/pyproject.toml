@@ -1,0 +1,12 @@
+[project]
+name = "ocr_worker"
+version = "0.1.0"
+description = "An OCR worker service"
+dependencies = [
+    "SQLAlchemy",
+    "PyMySQL",
+    "python-dotenv",
+]
+
+[tool.setuptools]
+packages = ["ocr_worker"]
