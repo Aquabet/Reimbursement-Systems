@@ -6,6 +6,7 @@ from sqlalchemy.orm import sessionmaker
 from dotenv import load_dotenv
 from ocr_worker.storage_reader import StorageReaderFactory
 from ocr_worker.mcp_client import McpClient
+from ocr_worker.mcp_extractor import MockMcpExtractor
 
 
 def determine_mime_type(filename):
@@ -70,21 +71,57 @@ def update_ocr_status(receipt_id, status, extracted_text, db_session):
         raise
 
 
+def publish_validation_job(receipt_id, extracted_text, sqs_client, queue_url):
+    """Publish a validation job to SQS after OCR completes."""
+    try:
+        # Extract fields from OCR text
+        extractor = MockMcpExtractor()
+        extracted_fields = extractor.extract_fields(extracted_text)
+
+        message_body = {
+            "receipt_id": receipt_id,
+            "extracted_text": extracted_text,
+            "extracted_amount": extracted_fields.get("amount"),
+            "extracted_date": extracted_fields.get("date"),
+            "extracted_vendor": extracted_fields.get("vendor"),
+            "extracted_category": extracted_fields.get("category"),
+        }
+
+        sqs_client.send_message(
+            QueueUrl=queue_url,
+            MessageBody=json.dumps(message_body)
+        )
+
+        print(f"Published validation job for receipt_id: {receipt_id}")
+        print(f"  - Amount: {extracted_fields.get('amount')}")
+        print(f"  - Date: {extracted_fields.get('date')}")
+        print(f"  - Vendor: {extracted_fields.get('vendor')}")
+        print(f"  - Category: {extracted_fields.get('category')}")
+
+    except Exception as e:
+        print(f"Error publishing validation job: {e}")
+        raise
+
+
 def main():
     load_dotenv()
 
-    sqs = boto3.client("sqs", region_name=os.environ.get("AWS_REGION"))
-    queue_url = os.environ.get("SQS_QUEUE_URL")
+    sqs_ocr = boto3.client("sqs", region_name=os.environ.get("AWS_REGION"))
+    sqs_validation = boto3.client("sqs", region_name=os.environ.get("AWS_REGION"))
+
+    ocr_queue_url = os.environ.get("SQS_QUEUE_URL")
+    validation_queue_url = os.environ.get("SQS_VALIDATION_QUEUE_URL")
 
     engine = create_engine(os.environ.get("DATABASE_URL"))
     Session = sessionmaker(bind=engine)
 
     print("Worker started. Waiting for messages...")
-    print(f"Queue URL: {queue_url}")
+    print(f"OCR Queue URL: {ocr_queue_url}")
+    print(f"Validation Queue URL: {validation_queue_url}")
 
     while True:
-        response = sqs.receive_message(
-            QueueUrl=queue_url, MaxNumberOfMessages=1, WaitTimeSeconds=20
+        response = sqs_ocr.receive_message(
+            QueueUrl=ocr_queue_url, MaxNumberOfMessages=1, WaitTimeSeconds=20
         )
 
         if "Messages" in response:
@@ -97,7 +134,7 @@ def main():
             if not receipt_id:
                 print(f"Invalid message (no receipt_id): {message_id}")
                 # Delete invalid messages
-                sqs.delete_message(QueueUrl=queue_url, ReceiptHandle=receipt_handle)
+                sqs_ocr.delete_message(QueueUrl=ocr_queue_url, ReceiptHandle=receipt_handle)
                 continue
 
             session = Session()
@@ -110,9 +147,12 @@ def main():
                 # Update database with success
                 update_ocr_status(receipt_id, "SUCCESS", extracted_text, session)
 
+                # Publish validation job
+                publish_validation_job(receipt_id, extracted_text, sqs_validation, validation_queue_url)
+
                 # Delete message from queue on success
-                sqs.delete_message(QueueUrl=queue_url, ReceiptHandle=receipt_handle)
-                print(f"✓ Message deleted from queue for receipt_id: {receipt_id}")
+                sqs_ocr.delete_message(QueueUrl=ocr_queue_url, ReceiptHandle=receipt_handle)
+                print(f"✓ Message deleted from OCR queue for receipt_id: {receipt_id}")
 
             except Exception as e:
                 error_msg = str(e)

@@ -1,0 +1,41 @@
+# Copy this file to terraform.tfvars and update with your values
+
+aws_region = "us-east-1"
+
+# Database credentials (REQUIRED - change these!)
+db_password = "CHANGE_THIS_TO_A_STRONG_PASSWORD!"
+
+# Application secrets (REQUIRED - change these!)
+secret_key     = "CHANGE_THIS_TO_A_RANDOM_SECRET_KEY!"
+jwt_secret_key = "CHANGE_THIS_TO_A_RANDOM_JWT_SECRET_KEY!"
+
+# Docker images (update with your ECR URIs)
+api_image                = "<ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/reimbursement-api:staging"
+ocr_worker_image        = "<ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/reimbursement-ocr-worker:staging"
+validation_worker_image = "<ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/reimbursement-validation-worker:staging"
+
+# Load Balancer Target Group ARN (create this manually first)
+alb_target_group_arn = "arn:aws:elasticloadbalancing:us-east-1:<ACCOUNT_ID>:targetgroup/reimbursement-api-staging/XYZ123"
+
+# Database settings
+db_instance_class    = "db.t3.micro"
+db_allocated_storage = 20
+db_name              = "reimbursement_db"
+db_username          = "dbadmin"
+db_max_connections   = 100
+
+# Service scaling
+api_desired_count    = 2
+api_max_count        = 5
+worker_desired_count = 1
+
+# Optional: RDS proxy (for production)
+enable_proxy  = false
+proxy_role_arn = ""
+
+# Optional: VPC Flow Logs
+enable_flow_logs   = true
+flow_logs_role_arn = "arn:aws:iam::<ACCOUNT_ID>:role/VPCFlowLogsRole"
+
+# Logging
+log_retention_days = 7

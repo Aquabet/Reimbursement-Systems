@@ -1,0 +1,311 @@
+from flask import Blueprint, jsonify, request
+
+from reimbursement_api.application.services import ReportService
+from reimbursement_api.application.report_aggregation_service import (
+    ReportAggregationService,
+    StateTransitionError,
+)
+from reimbursement_api.application.review_service import ReviewService
+from reimbursement_api.application.audit_service import AuditService
+
+reports_bp = Blueprint("reports", __name__, url_prefix="/v1/reports")
+report_service = ReportService()
+aggregation_service = ReportAggregationService()
+review_service = ReviewService()
+audit_service = AuditService()
+
+
+@reports_bp.route("", methods=["POST"])
+def create_report():
+    data = request.get_json()
+    report = report_service.create_report(data)
+    return jsonify(report.to_dict()), 201
+
+
+@reports_bp.route("/<int:report_id>", methods=["GET"])
+def get_report(report_id):
+    detailed = request.args.get("detailed", "false").lower() == "true"
+    report = report_service.get_report(report_id)
+
+    if detailed:
+        return jsonify(report.to_detailed_dict())
+    else:
+        return jsonify(report.to_dict())
+
+
+@reports_bp.route("/<int:report_id>/summary", methods=["GET"])
+def get_report_summary(report_id):
+    """Get comprehensive report summary with receipt validation results."""
+    try:
+        summary = aggregation_service.get_report_summary(report_id)
+        return jsonify(summary)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@reports_bp.route("/<int:report_id>/submit", methods=["POST"])
+def submit_report(report_id):
+    """Submit a report for approval."""
+    try:
+        summary, warnings = aggregation_service.submit_report(report_id)
+        response = {"report": summary["report"], "warnings": warnings}
+
+        if warnings:
+            response["message"] = "Report submitted successfully with warnings"
+
+        return jsonify(response), 200
+    except StateTransitionError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"error": f"Failed to submit report: {str(e)}"}), 500
+
+
+@reports_bp.route("/<int:report_id>/approve", methods=["POST"])
+def approve_report(report_id):
+    """Approve a submitted report."""
+    data = request.get_json() or {}
+    reviewer_notes = data.get("reviewer_notes")
+
+    try:
+        report = aggregation_service.approve_report(report_id, reviewer_notes)
+        return jsonify({"report": report, "message": "Report approved successfully"}), 200
+    except StateTransitionError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"error": f"Failed to approve report: {str(e)}"}), 500
+
+
+@reports_bp.route("/<int:report_id>/reject", methods=["POST"])
+def reject_report(report_id):
+    """Reject a report."""
+    data = request.get_json()
+
+    if not data or "rejection_reason" not in data:
+        return jsonify({"error": "rejection_reason is required"}), 400
+
+    rejection_reason = data["rejection_reason"]
+
+    try:
+        report = aggregation_service.reject_report(report_id, rejection_reason)
+        return jsonify({"report": report, "message": "Report rejected"}), 200
+    except StateTransitionError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"error": f"Failed to reject report: {str(e)}"}), 500
+
+
+@reports_bp.route("/<int:report_id>/request-review", methods=["POST"])
+def request_review(report_id):
+    """Move report to review pending status."""
+    try:
+        report = aggregation_service.request_review(report_id)
+        return jsonify({"report": report, "message": "Report moved to review pending"}), 200
+    except StateTransitionError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"error": f"Failed to request review: {str(e)}"}), 500
+
+
+@reports_bp.route("/<int:report_id>/return-to-draft", methods=["POST"])
+def return_to_draft(report_id):
+    """Return a report to draft status."""
+    try:
+        report = aggregation_service.return_to_draft(report_id)
+        return jsonify({"report": report, "message": "Report returned to draft"}), 200
+    except StateTransitionError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"error": f"Failed to return report to draft: {str(e)}"}), 500
+
+
+@reports_bp.route("/<int:report_id>/status-history", methods=["GET"])
+def get_status_history(report_id):
+    """Get the status history for a report."""
+    try:
+        history = aggregation_service.get_status_history(report_id)
+        return jsonify(history), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 404
+
+
+@reports_bp.route("/review/inbox", methods=["GET"])
+def get_review_inbox():
+    """Get the review inbox with reports pending review."""
+    status = request.args.get("status")
+    page = int(request.args.get("page", 1))
+    per_page = int(request.args.get("per_page", 20))
+
+    try:
+        inbox_data = review_service.get_review_inbox(
+            status=status, page=page, per_page=per_page
+        )
+        return jsonify(inbox_data), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@reports_bp.route("/review/<int:report_id>", methods=["GET"])
+def get_report_for_review(report_id):
+    """Get detailed report information for review."""
+    try:
+        report_details = review_service.get_report_details_for_review(report_id)
+        return jsonify(report_details), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 404
+
+
+@reports_bp.route("/review/<int:report_id>/approve", methods=["POST"])
+def approve_report_with_review(report_id):
+    """Approve a report as part of the review workflow."""
+    data = request.get_json() or {}
+
+    reviewer_id = data.get("reviewer_id")
+    reviewer_email = data.get("reviewer_email")
+    approval_notes = data.get("approval_notes")
+
+    if not reviewer_id or not reviewer_email:
+        return jsonify({"error": "reviewer_id and reviewer_email are required"}), 400
+
+    try:
+        updated_report, message = review_service.approve_report_with_review(
+            report_id=report_id,
+            reviewer_id=reviewer_id,
+            reviewer_email=reviewer_email,
+            approval_notes=approval_notes,
+        )
+        return jsonify({"report": updated_report, "message": message}), 200
+    except StateTransitionError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"error": f"Failed to approve report: {str(e)}"}), 500
+
+
+@reports_bp.route("/review/<int:report_id>/reject", methods=["POST"])
+def reject_report_with_review(report_id):
+    """Reject a report as part of the review workflow."""
+    data = request.get_json() or {}
+
+    reviewer_id = data.get("reviewer_id")
+    reviewer_email = data.get("reviewer_email")
+    rejection_reason = data.get("rejection_reason")
+    rejection_notes = data.get("rejection_notes")
+
+    if not reviewer_id or not reviewer_email:
+        return jsonify({"error": "reviewer_id and reviewer_email are required"}), 400
+
+    if not rejection_reason:
+        return jsonify({"error": "rejection_reason is required"}), 400
+
+    try:
+        updated_report, message = review_service.reject_report_with_review(
+            report_id=report_id,
+            reviewer_id=reviewer_id,
+            reviewer_email=reviewer_email,
+            rejection_reason=rejection_reason,
+            rejection_notes=rejection_notes,
+        )
+        return jsonify({"report": updated_report, "message": message}), 200
+    except StateTransitionError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"error": f"Failed to reject report: {str(e)}"}), 500
+
+
+@reports_bp.route("/review/<int:report_id>/request-changes", methods=["POST"])
+def request_changes_on_report(report_id):
+    """Request changes on a report and return to draft."""
+    data = request.get_json() or {}
+
+    reviewer_id = data.get("reviewer_id")
+    reviewer_email = data.get("reviewer_email")
+    change_requests = data.get("change_requests")
+
+    if not reviewer_id or not reviewer_email:
+        return jsonify({"error": "reviewer_id and reviewer_email are required"}), 400
+
+    if not change_requests:
+        return jsonify({"error": "change_requests description is required"}), 400
+
+    try:
+        updated_report, message = review_service.request_changes(
+            report_id=report_id,
+            reviewer_id=reviewer_id,
+            reviewer_email=reviewer_email,
+            change_requests=change_requests,
+        )
+        return jsonify({"report": updated_report, "message": message}), 200
+    except StateTransitionError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"error": f"Failed to request changes: {str(e)}"}), 500
+
+
+@reports_bp.route("/review/statistics", methods=["GET"])
+def get_review_statistics():
+    """Get review workflow statistics."""
+    try:
+        statistics = review_service.get_review_statistics()
+        return jsonify(statistics), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@reports_bp.route("/<int:report_id>/audit-trail", methods=["GET"])
+def get_audit_trail(report_id):
+    """Get the complete audit trail for a report."""
+    page = int(request.args.get("page", 1))
+    per_page = int(request.args.get("per_page", 50))
+
+    try:
+        audit_data = audit_service.get_audit_trail_paginated(
+            report_id=report_id, page=page, per_page=per_page
+        )
+        return jsonify(audit_data), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 404
+
+
+@reports_bp.route("/audit-logs", methods=["GET"])
+def get_all_audit_logs():
+    """Get all audit logs with optional filtering."""
+    user_id = request.args.get("user_id")
+    action = request.args.get("action")
+    from_date = request.args.get("from_date")
+    to_date = request.args.get("to_date")
+    page = int(request.args.get("page", 1))
+    per_page = int(request.args.get("per_page", 100))
+
+    # Parse dates if provided
+    from_datetime = None
+    to_datetime = None
+
+    if from_date:
+        from datetime import datetime
+        from datetime import timezone
+
+        try:
+            from_datetime = datetime.fromisoformat(from_date.replace("Z", "+00:00"))
+        except ValueError:
+            from_datetime = datetime.strptime(from_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+
+    if to_date:
+        try:
+            to_datetime = datetime.fromisoformat(to_date.replace("Z", "+00:00"))
+        except ValueError:
+            to_datetime = datetime.strptime(to_date, "%Y-%m-%d").replace(
+                hour=23, minute=59, second=59, tzinfo=timezone.utc
+            )
+
+    try:
+        audit_data = audit_service.get_all_audit_logs(
+            user_id=user_id,
+            action=action,
+            from_date=from_datetime,
+            to_date=to_datetime,
+            page=page,
+            per_page=per_page,
+        )
+        return jsonify(audit_data), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
