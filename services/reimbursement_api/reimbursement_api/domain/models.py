@@ -36,3 +36,19 @@ class Receipt(db.Model):
             "filename": self.filename,
             "storage_path": self.storage_path,
         }
+
+
+class OcrResult(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    receipt_id = db.Column(db.Integer, db.ForeignKey("receipt.id"), nullable=False, unique=True)
+    receipt = db.relationship("Receipt", backref=db.backref("ocr_result", uselist=False))
+    extracted_text = db.Column(db.Text, nullable=True)
+    status = db.Column(db.String(50), nullable=False, default="PENDING")  # e.g., PENDING, SUCCESS, FAILED
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "receipt_id": self.receipt_id,
+            "extracted_text": self.extracted_text,
+            "status": self.status,
+        }
