@@ -7,6 +7,8 @@ This directory contains the microservices extracted from the monolithic reimburs
 ### 1. Report Service (`reimbursement_api/`)
 - **Port**: 5000
 - **Database**: Reports, Report states, Audit logs
+- **Security**: JWT-based authentication with secret management via AWS Secrets Manager.
+- **Observability**: Emits structured JSON logs.
 - **Responsibilities**:
   - Report CRUD operations
   - Report state management (DRAFT → SUBMITTED → REVIEW → APPROVED/REJECTED)
@@ -15,13 +17,15 @@ This directory contains the microservices extracted from the monolithic reimburs
 
 ### 2. Receipt Service (`receipt_service/`)
 - **Port**: 5001
-- **Database**: Receipts table, Validation results
+- **Database**: Receipts table, Validation results (logically decoupled)
+- **Security**: JWT-based authentication with secret management via AWS Secrets Manager.
+- **Observability**: Emits structured JSON logs.
 - **Responsibilities**:
   - Receipt CRUD operations
   - Receipt upload and storage
   - Validation result storage and retrieval
   - Integration with OCR and Validation queues
-  - Event publishing (receipt.created, receipt.ocr_completed, receipt.validated)
+  - Event publishing (receipt.created, receipt.ocr_completed, receipt.validated) to AWS SNS Topic
 
 **API Endpoints**:
 - POST `/v1/receipts` - Create receipt
@@ -35,12 +39,14 @@ This directory contains the microservices extracted from the monolithic reimburs
 ### 3. Review Service (`review_service/`)
 - **Port**: 5002
 - **Database**: Reports (read-only for inbox), Audit logs, Review comments
+- **Security**: JWT-based authentication with secret management via AWS Secrets Manager.
+- **Observability**: Emits structured JSON logs.
 - **Responsibilities**:
   - Review inbox management
   - Report approval/rejection
   - Review workflow and audit logging
   - Cross-service communication (calls Receipt Service for validation data)
-  - Event publishing (report.approved, report.rejected)
+  - Event publishing (report.approved, report.rejected) to AWS SNS Topic
 
 **API Endpoints**:
 - GET `/v1/review/inbox` - Get review inbox
@@ -56,6 +62,9 @@ This directory contains the microservices extracted from the monolithic reimburs
   - Rate limiting and request logging
   - Service discovery and health checking
   - Cross-cutting concerns management
+  - **Security**: JWT validation with secret management via AWS Secrets Manager.
+  - **Observability**: Structured JSON logging, request ID tracking, standardized error handling.
+  - **Features**: Rate limiting with Flask-Limiter.
 
 **Routes**:
 - `/v1/reports/*` → Report Service (5000)
@@ -63,12 +72,14 @@ This directory contains the microservices extracted from the monolithic reimburs
 - `/v1/review/*` → Review Service (5002)
 
 ### 5. OCR Worker (`ocr_worker/`)
-- **Responsibilities**: Async OCR processing
-- **Communicates via**: SQS queue
+- **Responsibilities**: Asynchronous OCR processing of uploaded receipts.
+- **Communicates via**: Consumes messages from the `OCR_QUEUE` (SQS) for new OCR jobs. Publishes `receipt.ocr_completed` events to SNS upon completion.
+- **Observability**: Emits structured JSON logs.
 
 ### 6. Validation Worker (`ocr_worker/validation_main.py`)
-- **Responsibilities**: Async validation with MCP
-- **Communicates via**: SQS queue
+- **Responsibilities**: Asynchronous validation of OCR results using MCP (Multi-Cloud Platform) capabilities.
+- **Communicates via**: Consumes messages from the `VALIDATION_QUEUE` (SQS) for new validation jobs. Publishes `receipt.validated` events to SNS upon completion.
+- **Observability**: Emits structured JSON logs.
 
 ## Communication Patterns
 

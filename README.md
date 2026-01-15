@@ -4,8 +4,7 @@
 
 ### 1. Overview
 
-The AWS-Based Reimbursement Automation System is a backend platform that automates expense reimbursement workflows.
-It processes uploaded receipts using OCR and data analysis pipelines to extract structured data, validate expenses against company policies, detect anomalies, and route submissions for automated or manual review.
+The AWS-Based Reimbursement Automation System is a backend platform that automates expense reimbursement workflows. It processes uploaded receipts using OCR and data analysis pipelines to extract structured data, validate expenses against company policies, detect anomalies, and route submissions for automated or manual review.
 
 The system is designed with:
 
@@ -48,21 +47,21 @@ The system is designed with:
 
 #### 4.1 Logical Services
 
-| Service                 | Responsibility                           |
-| ----------------------- | ---------------------------------------- |
-| API Gateway / BFF       | Unified API entry point                  |
-| Report Service          | Expense report lifecycle and aggregation |
-| Receipt Service         | Receipt metadata and processing state    |
-| OCR Worker (MCP)        | OCR text extraction and structuring      |
+| Service | Responsibility |
+| --- | --- |
+| API Gateway / BFF | Unified API entry point |
+| Report Service | Expense report lifecycle and aggregation |
+| Receipt Service | Receipt metadata and processing state |
+| OCR Worker (MCP) | OCR text extraction and structuring |
 | Validation Worker (MCP) | Policy enforcement and anomaly detection |
-| Review Service          | Human review workflows                   |
-| Notification Service    | Email or chat notifications              |
+| Review Service | Human review workflows |
+| Notification Service | Email or chat notifications |
 
 #### 4.2 Communication Model
 
 - Synchronous: REST (JSON over HTTP)
 - Asynchronous: SQS for OCR and validation jobs
-- Event-driven: EventBridge for cross-service signals
+- Event-driven: SNS for cross-service signals
 
 ### 5. Deployment Architecture
 
@@ -241,15 +240,15 @@ Indexes are applied to:
 
 ### 11. Security
 
-- JWT-based authentication (Cognito or OIDC)
+- JWT-based authentication (AWS Secrets Manager for key management)
 - Role-based access control (RBAC)
 - Encrypted storage (S3, RDS, KMS)
 - Immutable audit logs
-- Request rate limiting
+- Request rate limiting (implemented in API Gateway)
 
 ### 12. Observability
 
-- Logging: JSON structured logs
+- Logging: JSON structured logs (implemented in API Gateway)
 - Tracing: OpenTelemetry
 - Metrics:
   - OCR latency
@@ -259,8 +258,10 @@ Indexes are applied to:
 
 ### 13. CI/CD
 
+- GitHub Actions for CI/CD pipelines (build, test, deploy to staging)
 - Linting and static typing
 - Unit and integration tests
+- Performance tests (using Locust)
 - OpenAPI schema validation
 - Alembic migration checks
 - Blue/green or rolling ECS deployments
@@ -276,12 +277,13 @@ Indexes are applied to:
 #### Phase 2 – Microservices
 
 - Separate Report / Receipt / Review services
-- Service-owned data
+- Service-owned data (logical decoupling initiated for Receipt Service)
 
 #### Phase 3 – Event Driven
 
 - EventBridge-based workflows
 - Policy versioning and experimentation
+
 
 ### 15. Deliverables
 
@@ -290,3 +292,94 @@ Indexes are applied to:
 - Terraform modules
 - Docker Compose for local development
 - Per-service README files
+
+### 16. Deployment Tutorials
+
+#### 16.1 Development Environment Deployment
+
+The development environment uses Docker Compose for quick startup and management.
+
+**Prerequisites:**
+
+*   Docker Desktop (or Docker Engine and Docker Compose)
+
+**Deployment Steps:**
+
+1.  **Clone the project repository:**
+    ```bash
+    git clone https://github.com/Aquabet/Reimbursement-Systems.git
+    cd Reimbursement-Systems
+    ```
+2.  **Start services:**
+    Run the following command to start all microservices, MySQL database, and LocalStack (simulated AWS services):
+    ```bash
+    docker-compose up --build
+    ```
+    The `-d` option can be used to run services in the background: `docker-compose up -d --build`
+3.  **Verify services:**
+    After all services have started, you can verify their status by accessing the following health check endpoints:
+    *   API Gateway: `http://localhost:8080/health`
+    *   Report Service: `http://localhost:5000/health`
+    *   Receipt Service: `http://localhost:5001/health`
+    *   Review Service: `http://localhost:5002/health`
+    *   LocalStack (S3): `http://localhost:4566/health` (Check if S3, SQS, SNS, Secrets Manager are working correctly)
+
+#### 16.2 Production Environment Deployment (AWS with Terraform)
+
+Production environment deployment is based on the AWS cloud platform and Terraform for Infrastructure as Code (IaC) management.
+
+**Prerequisites:**
+
+*   AWS account and credentials configured with administrator permissions
+*   Terraform CLI
+*   AWS CLI
+*   Docker CLI
+
+**Overview of Deployment Steps:**
+
+1.  **Configure AWS credentials:**
+    Ensure your AWS CLI is configured with credentials. Terraform will use these credentials for deployment.
+    ```bash
+    aws configure
+    ```
+2.  **Initialize Terraform:**
+    Navigate to the `infrastructure/terraform` directory and initialize Terraform.
+    ```bash
+    cd infrastructure/terraform
+    terraform init
+    ```
+3.  **Plan deployment:**
+    Terraform will display a plan of resources to be created, modified, or destroyed.
+    ```bash
+    terraform plan -var-file="staging/staging.tfvars"
+    ```
+    (Use `-var-file` to specify environment configuration files, e.g., `staging/staging.tfvars` or `production/production.tfvars`)
+4.  **Apply deployment:**
+    After confirming the plan, apply the Terraform plan to deploy resources.
+    ```bash
+    terraform apply -var-file="staging/staging.tfvars"
+    ```
+    Enter `yes` to confirm.
+5.  **Build and push Docker images:**
+    For each microservice, you need to build its Docker image and push it to AWS ECR (Elastic Container Registry).
+    ```bash
+    # Example: Report Service
+    cd ../../services/reimbursement_api
+    aws ecr get-login-password --region <your-aws-region> | docker login --username AWS --password-stdin <your-aws-account-id>.dkr.ecr.<your-aws-region>.amazonaws.com
+    docker build -t report-service .
+    docker tag report-service:latest <your-aws-account-id>.dkr.ecr.<your-aws-region>.amazonaws.com/report-service:latest
+    docker push <your-aws-account-id>.dkr.ecr.<your-aws-region>.amazonaws.com/report-service:latest
+    ```
+    Repeat this step for all services.
+6.  **Update ECS Services:**
+    Once Docker images are pushed to ECR, ECS services will automatically update to pull the latest images (if CI/CD is configured).
+    If manual updates are needed, you can use the AWS console or AWS CLI.
+
+#### 16.3 CI/CD Automated Deployment
+
+The project is configured with GitHub Actions CI/CD pipelines (located in `.github/workflows/`). When code is pushed to the `master` branch or a pull request is submitted, build and test steps are automatically triggered. These pipelines can be extended in the future to include automated deployment steps to staging/production environments.
+
+**Future Enhancements:**
+
+*   Integrate AWS CodePipeline and CodeBuild for a fully automated deployment process.
+*   Configure blue/green deployment or canary release strategies.

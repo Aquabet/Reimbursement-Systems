@@ -19,12 +19,13 @@ Receipt Upload → SQS Queue (ocr_jobs) → OCR Worker → Database
 ```bash
 # Create the main queue with DLQ configured
 aws sqs create-queue \
-    --queue-name ocr_jobs \
+    --queue-name reimbursement-ocr-queue \
     --attributes '{
-        "RedrivePolicy": "{\"deadLetterTargetArn\":\"arn:aws:sqs:us-east-1:123456789012:ocr_jobs_dlq\",\"maxReceiveCount\":\"3\"}",
+        "RedrivePolicy": "{\"deadLetterTargetArn\":\"arn:aws:sqs:us-east-1:<YOUR_AWS_ACCOUNT_ID>:reimbursement-ocr-queue-dlq\",\"maxReceiveCount\":\"3\"}",
         "VisibilityTimeout": "180",
         "MessageRetentionPeriod": "1209600"
-    }'
+    }' \
+    --endpoint-url http://localhost:4566 # For LocalStack development
 ```
 
 Configuration Details:
@@ -37,26 +38,31 @@ Configuration Details:
 ```bash
 # Create the DLQ
 aws sqs create-queue \
-    --queue-name ocr_jobs_dlq \
+    --queue-name reimbursement-ocr-queue-dlq \
     --attributes '{
         "MessageRetentionPeriod": "1209600",
         "VisibilityTimeout": "180"
-    }'
+    }' \
+    --endpoint-url http://localhost:4566 # For LocalStack development
 ```
 
 ## Environment Variables
 
-Add to both OCR Worker and Reimbursement API `.env` files:
+Add to OCR Worker `.env` file and other relevant services (e.g., Receipt Service) if they interact directly with SQS:
 
 ```bash
 # SQS Queue URLs
-SQS_QUEUE_URL="https://sqs.us-east-1.amazonaws.com/123456789012/ocr_jobs"
-SQS_DLQ_URL="https://sqs.us-east-1.amazonaws.com/123456789012/ocr_jobs_dlq"
+OCR_QUEUE_URL="http://localstack:4566/000000000000/reimbursement-ocr-queue" # LocalStack example
+OCR_DLQ_URL="http://localstack:4566/000000000000/reimbursement-ocr-queue-dlq" # LocalStack example
+
+# Production example (replace <YOUR_AWS_ACCOUNT_ID> and <YOUR_AWS_REGION>)
+# SQS_QUEUE_URL="https://sqs.<YOUR_AWS_REGION>.amazonaws.com/<YOUR_AWS_ACCOUNT_ID>/reimbursement-ocr-queue"
+# SQS_DLQ_URL="https://sqs.<YOUR_AWS_REGION>.amazonaws.com/<YOUR_AWS_ACCOUNT_ID>/reimbursement-ocr-queue-dlq"
 
 # AWS Configuration
 AWS_REGION="us-east-1"
-AWS_ACCESS_KEY_ID="your-access-key"
-AWS_SECRET_ACCESS_KEY="your-secret-key"
+# AWS credentials are managed via IAM Roles in production, or LocalStack in dev.
+# For local testing, ensure your AWS CLI is configured or use temporary credentials.
 ```
 
 ## Error Handling Behavior
@@ -81,12 +87,17 @@ AWS_SECRET_ACCESS_KEY="your-secret-key"
 
 ## Monitoring
 
+### Structured Logging
+
+All services now emit structured JSON logs. These logs can be ingested by AWS CloudWatch Logs for centralized logging and analysis.
+
 ### Check DLQ Message Count
 
 ```bash
 aws sqs get-queue-attributes \
-    --queue-url https://sqs.us-east-1.amazonaws.com/123456789012/ocr_jobs_dlq \
-    --attribute-names ApproximateNumberOfMessages
+    --queue-url https://sqs.us-east-1.amazonaws.com/<YOUR_AWS_ACCOUNT_ID>/reimbursement-ocr-queue-dlq \
+    --attribute-names ApproximateNumberOfMessages \
+    --endpoint-url http://localhost:4566 # For LocalStack development
 ```
 
 ### CloudWatch Alarms (Recommended)
@@ -94,6 +105,7 @@ aws sqs get-queue-attributes \
 Create alarms for:
 - DLQ message count > 0 (indicates processing failures)
 - Primary queue message age (indicates slow processing)
+- Error logs in CloudWatch Logs (using filter patterns)
 
 ## Manual Recovery
 
@@ -102,8 +114,9 @@ Create alarms for:
 ```bash
 # Pull one message from DLQ for inspection
 aws sqs receive-message \
-    --queue-url https://sqs.us-east-1.amazonaws.com/123456789012/ocr_jobs_dlq \
-    --max-number-of-messages 1
+    --queue-url https://sqs.us-east-1.amazonaws.com/<YOUR_AWS_ACCOUNT_ID>/reimbursement-ocr-queue-dlq \
+    --max-number-of-messages 1 \
+    --endpoint-url http://localhost:4566 # For LocalStack development
 ```
 
 ### Reprocess Messages from DLQ
@@ -118,7 +131,8 @@ Option 2: Automated (after fixing issue)
 ```bash
 # Purge DLQ after fixing root cause and letting normal flow resume
 aws sqs purge-queue \
-    --queue-url https://sqs.us-east-1.amazonaws.com/123456789012/ocr_jobs_dlq
+    --queue-url https://sqs.us-east-1.amazonaws.com/<YOUR_AWS_ACCOUNT_ID>/reimbursement-ocr-queue-dlq \
+    --endpoint-url http://localhost:4566 # For LocalStack development
 ```
 
 ## Testing the Retry Logic

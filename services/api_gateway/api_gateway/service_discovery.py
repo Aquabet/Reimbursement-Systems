@@ -1,19 +1,19 @@
 import os
-import requests
-from typing import Dict, Optional, List
-from functools import wraps
+import requests  # type: ignore
+from typing import Dict, Optional
 import logging
 
 logger = logging.getLogger(__name__)
+
 
 class ServiceDiscovery:
     """Service discovery for locating microservices."""
 
     def __init__(self):
         self.services = {
-            'reports': os.getenv('REPORT_SERVICE_URL', 'http://report-service:5000'),
-            'receipts': os.getenv('RECEIPT_SERVICE_URL', 'http://receipt-service:5001'),
-            'review': os.getenv('REVIEW_SERVICE_URL', 'http://review-service:5002'),
+            "reports": os.getenv("REPORT_SERVICE_URL", "http://report-service:5000"),
+            "receipts": os.getenv("RECEIPT_SERVICE_URL", "http://receipt-service:5001"),
+            "review": os.getenv("REVIEW_SERVICE_URL", "http://review-service:5002"),
         }
         self.health_status = {name: True for name in self.services}
 
@@ -44,8 +44,10 @@ class ServiceDiscovery:
             health[service_name] = self.check_health(service_name)
         return health
 
+
 # Global service discovery instance
 service_discovery = ServiceDiscovery()
+
 
 def get_service_url(service_name: str) -> str:
     """Get service URL or raise error if not configured."""

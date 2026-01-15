@@ -42,4 +42,17 @@ aws s3api put-bucket-versioning \
     --versioning-configuration Status=Enabled \
     --endpoint-url http://localstack:4566
 
+# Create SNS Topic for events
+echo "Creating SNS Topic for reimbursement events..."
+aws sns create-topic \
+    --name reimbursement-events-topic \
+    --endpoint-url http://localstack:4566
+
+# Create JWT Secret Key in Secrets Manager
+echo "Creating JWT_SECRET_KEY in Secrets Manager..."
+aws secretsmanager create-secret \
+    --name /reimbursement/jwt_secret_key \
+    --secret-string "dev-jwt-secret-key-from-secrets-manager" \
+    --endpoint-url http://localstack:4566
+
 echo "LocalStack initialization completed!"

@@ -1,7 +1,9 @@
 import json
 import os
+from datetime import datetime, timedelta, timezone
 from io import BytesIO
 
+import jwt
 import pytest
 
 from reimbursement_api.app import create_app
@@ -9,8 +11,22 @@ from reimbursement_api.domain.models import Report
 from reimbursement_api.infrastructure.database import db
 
 
+def generate_jwt_token(user_id="test_user", role=None):
+    if role is None:
+        role = "submitter"
+    payload = {
+        "user_id": user_id,
+        "email": f"{user_id}@example.com",
+        "role": role,
+        "exp": datetime.now(timezone.utc) + timedelta(minutes=60),
+        "iat": datetime.now(timezone.utc),
+    }
+    return jwt.encode(payload, "mock-jwt-secret-key", algorithm="HS256")
+
+
 @pytest.fixture
 def app(mocker):
+    mocker.patch("reimbursement_api.app.get_secret", return_value="mock-jwt-secret-key")
     mocker.patch("boto3.client")
     # Set the UPLOAD_FOLDER for testing
     upload_folder = "test_uploads"
@@ -21,7 +37,7 @@ def app(mocker):
     with app.app_context():
         db.create_all()
         # Create a report to associate receipts with
-        test_report = Report(title="Test Report for Receipts")
+        test_report = Report(title="Test Report for Receipts", user_id="test_user_id")
         db.session.add(test_report)
         db.session.commit()
 
@@ -44,8 +60,18 @@ def client(app):
 
 def test_upload_receipt(client):
     """Test uploading a new receipt."""
+    token = generate_jwt_token()
     data = {"receipt": (BytesIO(b"my file contents"), "test.jpg"), "report_id": 1}
-    response = client.post("/v1/receipts/upload", data=data, content_type="multipart/form-data")
+    response = client.post(
+        "/v1/receipts/upload",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "X-User-ID": "test_user",
+            "X-User-Email": "test@example.com",
+        },
+        data=data,
+        content_type="multipart/form-data",
+    )
     assert response.status_code == 201  # noqa: PLR2004
     response_data = json.loads(response.data)
     assert response_data["filename"] == "test.jpg"
@@ -54,16 +80,35 @@ def test_upload_receipt(client):
 
 def test_upload_duplicate_receipt(client):
     """Test uploading a receipt that has already been uploaded."""
+    token = generate_jwt_token()
     file_content = b"duplicate file content"
     data = {"receipt": (BytesIO(file_content), "duplicate.jpg"), "report_id": 1}
     # Upload the first time
-    response1 = client.post("/v1/receipts/upload", data=data, content_type="multipart/form-data")
+    response1 = client.post(
+        "/v1/receipts/upload",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "X-User-ID": "test_user",
+            "X-User-Email": "test@example.com",
+        },
+        data=data,
+        content_type="multipart/form-data",
+    )
     assert response1.status_code == 201  # noqa: PLR2004
 
     # Upload the second time
     # Need to create a new BytesIO object because the file pointer is at the end
     data["receipt"] = (BytesIO(file_content), "duplicate.jpg")
-    response2 = client.post("/v1/receipts/upload", data=data, content_type="multipart/form-data")
+    response2 = client.post(
+        "/v1/receipts/upload",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "X-User-ID": "test_user",
+            "X-User-Email": "test@example.com",
+        },
+        data=data,
+        content_type="multipart/form-data",
+    )
     assert response2.status_code == 200  # noqa: PLR2004
     response_data = json.loads(response2.data)
     assert "This receipt has already been uploaded." in response_data["message"]
@@ -71,8 +116,18 @@ def test_upload_duplicate_receipt(client):
 
 def test_upload_receipt_no_file(client):
     """Test uploading with no file part."""
+    token = generate_jwt_token()
     data = {"report_id": 1}
-    response = client.post("/v1/receipts/upload", data=data, content_type="multipart/form-data")
+    response = client.post(
+        "/v1/receipts/upload",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "X-User-ID": "test_user",
+            "X-User-Email": "test@example.com",
+        },
+        data=data,
+        content_type="multipart/form-data",
+    )
     assert response.status_code == 400  # noqa: PLR2004
     response_data = json.loads(response.data)
     assert "No receipt file provided" in response_data["error"]
@@ -80,8 +135,18 @@ def test_upload_receipt_no_file(client):
 
 def test_upload_receipt_no_report_id(client):
     """Test uploading without a report_id."""
+    token = generate_jwt_token()
     data = {"receipt": (BytesIO(b"my file contents"), "test.jpg")}
-    response = client.post("/v1/receipts/upload", data=data, content_type="multipart/form-data")
+    response = client.post(
+        "/v1/receipts/upload",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "X-User-ID": "test_user",
+            "X-User-Email": "test@example.com",
+        },
+        data=data,
+        content_type="multipart/form-data",
+    )
     assert response.status_code == 400  # noqa: PLR2004
     response_data = json.loads(response.data)
     assert "report_id is required" in response_data["error"]
@@ -91,8 +156,18 @@ def test_upload_receipt_publishes_sqs_message(client, mocker):
     """Test that uploading a new receipt publishes an SQS message."""
     mock_send_message = mocker.patch("reimbursement_api.infrastructure.message_queue.SqsMessageQueue.send_message")
 
+    token = generate_jwt_token()
     data = {"receipt": (BytesIO(b"my file contents"), "test.jpg"), "report_id": 1}
-    response = client.post("/v1/receipts/upload", data=data, content_type="multipart/form-data")
+    response = client.post(
+        "/v1/receipts/upload",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "X-User-ID": "test_user",
+            "X-User-Email": "test@example.com",
+        },
+        data=data,
+        content_type="multipart/form-data",
+    )
 
     assert response.status_code == 201  # noqa: PLR2004
     mock_send_message.assert_called_once()

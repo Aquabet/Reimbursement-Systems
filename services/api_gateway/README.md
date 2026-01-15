@@ -23,9 +23,9 @@ Routes requests to appropriate microservices and handles cross-cutting concerns.
 
 ## Features
 
-- Authentication & authorization
-- Rate limiting
-- Request/response logging
-- Error handling
+- Authentication & authorization (JWT-based, with secret management via AWS Secrets Manager)
+- Rate limiting (implemented using Flask-Limiter)
+- Request/response logging (structured JSON format)
+- Standardized error handling
 - Service discovery
 - Health check aggregation

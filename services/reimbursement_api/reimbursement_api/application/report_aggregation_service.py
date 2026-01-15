@@ -1,9 +1,10 @@
-from typing import Dict, List, Optional, Tuple
+from datetime import datetime, timezone
+
 from sqlalchemy import text
-from reimbursement_api.infrastructure.database import db
-from reimbursement_api.domain.models import Report, ValidationResult, OcrResult
+
 from reimbursement_api.application.audit_service import AuditService
-from datetime import datetime
+from reimbursement_api.domain.models import Report
+from reimbursement_api.infrastructure.database import db
 
 
 class StateTransitionError(Exception):
@@ -34,13 +35,13 @@ class ReportAggregationService:
 
         valid_next = self.VALID_TRANSITIONS[current_status]
 
-        if new_status not in valid_next:
+        if new_status not in valid_next:  # type: ignore
             raise StateTransitionError(
                 f"Invalid transition from {current_status} to {new_status}. "
-                f"Valid transitions from {current_status} are: {', '.join(valid_next) if valid_next else 'none (terminal state)'}."
+                f"Valid transitions from {current_status} are: {', '.join(valid_next) if valid_next else 'none (terminal state)'}."  # type: ignore
             )
 
-    def get_report_summary(self, report_id: int) -> Dict:
+    def get_report_summary(self, report_id: int) -> dict:
         """Get a comprehensive summary of report including all receipt statuses."""
         report = Report.query.get_or_404(report_id)
 
@@ -118,7 +119,7 @@ class ReportAggregationService:
 
         return summary
 
-    def _check_ready_for_submission(self, summary: Dict) -> bool:
+    def _check_ready_for_submission(self, summary: dict) -> bool:
         """Check if report is ready for submission based on receipt statuses."""
         totals = summary["totals"]
 
@@ -136,7 +137,9 @@ class ReportAggregationService:
 
         return True
 
-    def submit_report(self, report_id: int, user_id: Optional[str] = None, user_email: Optional[str] = None) -> Tuple[Dict, List[str]]:
+    def submit_report(
+        self, report_id: int, user_id: str | None = None, user_email: str | None = None
+    ) -> tuple[dict, list[str]]:
         """Submit a report for approval. Returns updated report and any warnings."""
         report = Report.query.get_or_404(report_id)
 
@@ -157,13 +160,13 @@ class ReportAggregationService:
         # Update totals
         from_status = report.status
         report.status = "SUBMITTED"
-        report.submitted_at = datetime.utcnow()
+        report.submitted_at = datetime.now(timezone.utc)
         report.total_receipts = summary["totals"]["total_receipts"]
         report.total_amount = summary["totals"]["total_amount"]
         report.valid_receipts = summary["totals"]["valid_receipts"]
         report.invalid_receipts = summary["totals"]["invalid_receipts"]
         report.warning_receipts = summary["totals"]["warning_receipts"]
-        report.updated_at = datetime.utcnow()
+        report.updated_at = datetime.now(timezone.utc)
 
         db.session.commit()
 
@@ -181,12 +184,20 @@ class ReportAggregationService:
         # Collect warnings
         warnings = []
         if summary["totals"]["warning_receipts"] > 0:
-            warnings.append(f"Report contains {summary['totals']['warning_receipts']} receipts that require justification")
+            warnings.append(
+                f"Report contains {summary['totals']['warning_receipts']} receipts that require justification"
+            )
 
         summary["report"] = report.to_dict()
         return summary, warnings
 
-    def approve_report(self, report_id: int, user_id: Optional[str] = None, user_email: Optional[str] = None, reviewer_notes: Optional[str] = None) -> Dict:
+    def approve_report(
+        self,
+        report_id: int,
+        user_id: str | None = None,
+        user_email: str | None = None,
+        reviewer_notes: str | None = None,
+    ) -> dict:
         """Approve a submitted report."""
         report = Report.query.get_or_404(report_id)
 
@@ -196,8 +207,8 @@ class ReportAggregationService:
         # Update report
         from_status = report.status
         report.status = "APPROVED"
-        report.approved_at = datetime.utcnow()
-        report.updated_at = datetime.utcnow()
+        report.approved_at = datetime.now(timezone.utc)
+        report.updated_at = datetime.now(timezone.utc)
 
         db.session.commit()
 
@@ -215,7 +226,9 @@ class ReportAggregationService:
 
         return report.to_dict()
 
-    def reject_report(self, report_id: int, rejection_reason: str, user_id: Optional[str] = None, user_email: Optional[str] = None) -> Dict:
+    def reject_report(
+        self, report_id: int, rejection_reason: str, user_id: str | None = None, user_email: str | None = None
+    ) -> dict:
         """Reject a report (requires reason)."""
         if not rejection_reason:
             raise ValueError("Rejection reason is required")
@@ -224,14 +237,16 @@ class ReportAggregationService:
 
         # Can reject from SUBMITTED or REVIEW_PENDING
         if report.status not in ["SUBMITTED", "REVIEW_PENDING"]:
-            raise StateTransitionError(f"Can only reject reports in SUBMITTED or REVIEW_PENDING status. Current status: {report.status}")
+            raise StateTransitionError(
+                f"Can only reject reports in SUBMITTED or REVIEW_PENDING status. Current status: {report.status}"
+            )
 
         # Update report
         from_status = report.status
         report.status = "REJECTED"
-        report.rejected_at = datetime.utcnow()
+        report.rejected_at = datetime.now(timezone.utc)
         report.rejection_reason = rejection_reason
-        report.updated_at = datetime.utcnow()
+        report.updated_at = datetime.now(timezone.utc)
 
         db.session.commit()
 
@@ -249,7 +264,7 @@ class ReportAggregationService:
 
         return report.to_dict()
 
-    def request_review(self, report_id: int, user_id: Optional[str] = None, user_email: Optional[str] = None) -> Dict:
+    def request_review(self, report_id: int, user_id: str | None = None, user_email: str | None = None) -> dict:
         """Move report to review pending status."""
         report = Report.query.get_or_404(report_id)
 
@@ -258,7 +273,7 @@ class ReportAggregationService:
 
         from_status = report.status
         report.status = "REVIEW_PENDING"
-        report.updated_at = datetime.utcnow()
+        report.updated_at = datetime.now(timezone.utc)
 
         db.session.commit()
 
@@ -274,7 +289,7 @@ class ReportAggregationService:
 
         return report.to_dict()
 
-    def return_to_draft(self, report_id: int, user_id: Optional[str] = None, user_email: Optional[str] = None) -> Dict:
+    def return_to_draft(self, report_id: int, user_id: str | None = None, user_email: str | None = None) -> dict:
         """Return a report to draft status (allows editing)."""
         report = Report.query.get_or_404(report_id)
 
@@ -286,7 +301,7 @@ class ReportAggregationService:
 
         from_status = report.status
         report.status = "DRAFT"
-        report.updated_at = datetime.utcnow()
+        report.updated_at = datetime.now(timezone.utc)
 
         db.session.commit()
 
@@ -302,7 +317,7 @@ class ReportAggregationService:
 
         return report.to_dict()
 
-    def get_status_history(self, report_id: int) -> Dict:
+    def get_status_history(self, report_id: int) -> dict:
         """Get the status history for a report."""
         report = Report.query.get_or_404(report_id)
 
@@ -313,10 +328,18 @@ class ReportAggregationService:
             history.append({"status": "DRAFT", "timestamp": report.created_at.isoformat(), "notes": "Report created"})
 
         if report.submitted_at:
-            history.append({"status": "SUBMITTED", "timestamp": report.submitted_at.isoformat(), "notes": "Report submitted for approval"})
+            history.append(
+                {
+                    "status": "SUBMITTED",
+                    "timestamp": report.submitted_at.isoformat(),
+                    "notes": "Report submitted for approval",
+                }
+            )
 
         if report.approved_at:
-            history.append({"status": "APPROVED", "timestamp": report.approved_at.isoformat(), "notes": "Report approved"})
+            history.append(
+                {"status": "APPROVED", "timestamp": report.approved_at.isoformat(), "notes": "Report approved"}
+            )
 
         if report.rejected_at:
             history.append(

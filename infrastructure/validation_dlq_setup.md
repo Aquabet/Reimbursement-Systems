@@ -19,12 +19,13 @@ Receipt Upload → OCR Worker → Validation Worker → Database
 ```bash
 # Create the validation queue with DLQ configured
 aws sqs create-queue \
-    --queue-name validation_jobs \
+    --queue-name reimbursement-validation-queue \
     --attributes '{
-        "RedrivePolicy": "{\"deadLetterTargetArn\":\"arn:aws:sqs:us-east-1:123456789012:validation_jobs_dlq\",\"maxReceiveCount\":\"3\"}",
+        "RedrivePolicy": "{\"deadLetterTargetArn\":\"arn:aws:sqs:us-east-1:<YOUR_AWS_ACCOUNT_ID>:reimbursement-validation-queue-dlq\",\"maxReceiveCount\":\"3\"}",
         "VisibilityTimeout": "180",
         "MessageRetentionPeriod": "1209600"
-    }'
+    }' \
+    --endpoint-url http://localhost:4566 # For LocalStack development
 ```
 
 Configuration Details:
@@ -37,26 +38,31 @@ Configuration Details:
 ```bash
 # Create the Validation DLQ
 aws sqs create-queue \
-    --queue-name validation_jobs_dlq \
+    --queue-name reimbursement-validation-queue-dlq \
     --attributes '{
         "MessageRetentionPeriod": "1209600",
         "VisibilityTimeout": "180"
-    }'
+    }' \
+    --endpoint-url http://localhost:4566 # For LocalStack development
 ```
 
 ## Environment Variables
 
-Add to both OCR Worker and Reimbursement API `.env` files:
+Add to Validation Worker `.env` file and other relevant services if they interact directly with SQS:
 
 ```bash
 # Validation SQS Queue URLs
-SQS_VALIDATION_QUEUE_URL="https://sqs.us-east-1.amazonaws.com/123456789012/validation_jobs"
-SQS_VALIDATION_DLQ_URL="https://sqs.us-east-1.amazonaws.com/123456789012/validation_jobs_dlq"
+VALIDATION_QUEUE_URL="http://localstack:4566/000000000000/reimbursement-validation-queue" # LocalStack example
+VALIDATION_DLQ_URL="http://localstack:4566/000000000000/reimbursement-validation-queue-dlq" # LocalStack example
+
+# Production example (replace <YOUR_AWS_ACCOUNT_ID> and <YOUR_AWS_REGION>)
+# SQS_VALIDATION_QUEUE_URL="https://sqs.<YOUR_AWS_REGION>.amazonaws.com/<YOUR_AWS_ACCOUNT_ID>/reimbursement-validation-queue"
+# SQS_VALIDATION_DLQ_URL="https://sqs.<YOUR_AWS_REGION>.amazonaws.com/<YOUR_AWS_ACCOUNT_ID>/reimbursement-validation-queue-dlq"
 
 # AWS Configuration
 AWS_REGION="us-east-1"
-AWS_ACCESS_KEY_ID="your-access-key"
-AWS_SECRET_ACCESS_KEY="your-secret-key"
+# AWS credentials are managed via IAM Roles in production, or LocalStack in dev.
+# For local testing, ensure your AWS CLI is configured or use temporary credentials.
 ```
 
 ## Policy Configuration
@@ -161,12 +167,17 @@ The validation engine calculates a normalized reimbursement amount by applying t
 
 ## Monitoring
 
+### Structured Logging
+
+All services now emit structured JSON logs. These logs can be ingested by AWS CloudWatch Logs for centralized logging and analysis.
+
 ### Check Validation DLQ Message Count
 
 ```bash
 aws sqs get-queue-attributes \
-    --queue-url https://sqs.us-east-1.amazonaws.com/123456789012/validation_jobs_dlq \
-    --attribute-names ApproximateNumberOfMessages
+    --queue-url https://sqs.us-east-1.amazonaws.com/<YOUR_AWS_ACCOUNT_ID>/reimbursement-validation-queue-dlq \
+    --attribute-names ApproximateNumberOfMessages \
+    --endpoint-url http://localhost:4566 # For LocalStack development
 ```
 
 ### CloudWatch Alarms (Recommended)
@@ -175,6 +186,7 @@ Create alarms for:
 - Validation DLQ message count > 0 (indicates processing failures)
 - Validation queue message age (indicates slow processing)
 - Validation failure rate > threshold (indicates policy issues)
+- Error logs in CloudWatch Logs (using filter patterns)
 
 ## Manual Recovery
 
@@ -183,8 +195,9 @@ Create alarms for:
 ```bash
 # Pull one message from DLQ for inspection
 aws sqs receive-message \
-    --queue-url https://sqs.us-east-1.amazonaws.com/123456789012/validation_jobs_dlq \
-    --max-number-of-messages 1
+    --queue-url https://sqs.us-east-1.amazonaws.com/<YOUR_AWS_ACCOUNT_ID>/reimbursement-validation-queue-dlq \
+    --max-number-of-messages 1 \
+    --endpoint-url http://localhost:4566 # For LocalStack development
 ```
 
 ### Reprocess Messages from DLQ
@@ -200,7 +213,8 @@ Option 2: Automated (after fixing root cause)
 # Move all messages back to main queue after validation logic fix
 # Then purge DLQ
 aws sqs purge-queue \
-    --queue-url https://sqs.us-east-1.amazonaws.com/123456789012/validation_jobs_dlq
+    --queue-url https://sqs.us-east-1.amazonaws.com/<YOUR_AWS_ACCOUNT_ID>/reimbursement-validation-queue-dlq \
+    --endpoint-url http://localhost:4566 # For LocalStack development
 ```
 
 ## Testing the Retry Logic

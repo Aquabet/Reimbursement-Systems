@@ -10,7 +10,7 @@ from reimbursement_api.infrastructure.s3_storage import S3Storage
 
 class ReportService:
     def create_report(self, data):
-        new_report = Report(title=data.get("title"), description=data.get("description"))
+        new_report = Report(title=data.get("title"), description=data.get("description"), user_id=data.get("user_id"))
         db.session.add(new_report)
         db.session.commit()
         return new_report
@@ -50,11 +50,7 @@ class ReceiptService:
 
         self.message_queue.send_message(
             os.environ.get("SQS_QUEUE_URL"),
-            {
-                "receipt_id": new_receipt.id,
-                "storage_path": storage_path,
-                "filename": file.filename
-            }
+            {"receipt_id": new_receipt.id, "storage_path": storage_path, "filename": file.filename},
         )
 
         return new_receipt, False

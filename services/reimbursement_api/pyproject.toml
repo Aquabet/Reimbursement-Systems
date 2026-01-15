@@ -9,6 +9,7 @@ dependencies = [
     "PyMySQL",
     "python-dotenv",
     "boto3",
+    "PyJWT",
 ]
 
 [tool.pytest.ini_options]

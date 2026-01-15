@@ -1,0 +1,51 @@
+name: API Gateway CI/CD
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - 'services/api_gateway/**'
+      - '.github/workflows/api-gateway.yml'
+  pull_request:
+    branches:
+      - master
+    paths:
+      - 'services/api_gateway/**'
+      - '.github/workflows/api-gateway.yml'
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9' # Adjust to your project's Python version
+
+    - name: Install dependencies
+      working-directory: ./services/api_gateway
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pytest
+
+    - name: Run tests
+      working-directory: ./services/api_gateway
+      run: |
+        pytest tests/
+
+    - name: Build Docker image
+      working-directory: ./services/api_gateway
+      run: |
+        docker build -t api-gateway .
+        echo "Docker image built successfully"
+
+    # Future steps could include:
+    # - Login to AWS ECR
+    # - Push Docker image to ECR
+    # - Deploy to ECS

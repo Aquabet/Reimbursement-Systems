@@ -17,9 +17,17 @@ Manages the review workflow, approver inbox, and approval actions for reports.
 
 ## Events
 
-Publishes events to Message Bus:
+Publishes events to AWS SNS Topic:
 - `report.approved` - When a report is approved
 - `report.rejected` - When a report is rejected
 
-Consumes events:
+Consumes events (e.g., from SNS subscriptions):
 - `report.submitted` - Notify reviewers of new submission
+
+## Security
+
+- JWT-based authentication with secret management via AWS Secrets Manager.
+
+## Observability
+
+- Emits structured JSON logs for better monitoring and debugging.

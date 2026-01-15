@@ -10,9 +10,10 @@ The infrastructure includes:
 - **RDS**: MySQL database for storing reports, receipts, and audit logs
 - **S3**: Bucket for storing receipt images with versioning and encryption
 - **SQS**: Message queues for OCR and validation jobs with DLQs
+- **SNS**: Event bus for cross-service communication
 - **ECS Fargate**: Container orchestration for API and worker services
-- **CloudWatch**: Log aggregation and monitoring
-- **IAM**: Fine-grained permissions for ECS tasks
+- **CloudWatch**: Log aggregation, structured logging, and comprehensive monitoring/alerting
+- **IAM**: Fine-grained permissions for ECS tasks, including access to Secrets Manager
 
 ## Pre-requisites
 
@@ -171,7 +172,7 @@ The deployment creates several CloudWatch resources:
 
 ## Security Considerations
 
-1. **Credentials**: All sensitive data (DB passwords, JWT secrets) should be passed via environment variables or AWS Secrets Manager
+1. **Credentials**: All sensitive data (DB passwords, JWT secrets) should be managed via AWS Secrets Manager or environment variables passed securely.
 2. **Network**: ECS tasks run in private subnets with no public IPs
 3. **Encryption**: S3 buckets and RDS have encryption at rest enabled
 4. **IAM**: Least-privilege policies for ECS tasks
@@ -236,41 +237,63 @@ aws ecs list-tasks --cluster <cluster-name>
 
 ## CI/CD Integration
 
-### Example GitHub Actions Workflow
+The project is configured with GitHub Actions CI/CD pipelines (located in `.github/workflows/`). These pipelines define build and test steps for each microservice (Report, Receipt, Review, API Gateway, OCR Worker). They are automatically triggered when code is pushed to the `master` branch or a pull request is submitted.
+
+**Example GitHub Actions Workflow (located in `.github/workflows/report-service.yml`):**
 
 ```yaml
-name: Deploy to Staging
+name: Report Service CI/CD
 
 on:
   push:
-    branches: [ develop ]
+    branches:
+      - master
+    paths:
+      - 'services/reimbursement_api/**'
+      - '.github/workflows/report-service.yml'
+  pull_request:
+    branches:
+      - master
+    paths:
+      - 'services/reimbursement_api/**'
+      - '.github/workflows/report-service.yml'
 
 jobs:
-  deploy:
+  build-and-test:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v2
+    - name: Checkout code
+      uses: actions/checkout@v3
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v1
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-1
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9' # Adjust to your project's Python version
 
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v1
+    - name: Install dependencies
+      working-directory: ./services/reimbursement_api
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pytest
 
-      - name: Terraform Init
-        run: |
-          cd infrastructure/terraform/staging
-          terraform init
+    - name: Run tests
+      working-directory: ./services/reimbursement_api
+      run: |
+        pytest tests/
 
-      - name: Terraform Apply
-        run: |
-          cd infrastructure/terraform/staging
-          terraform apply -auto-approve -var="db_password=${{ secrets.DB_PASSWORD }}"
+    - name: Build Docker image
+      working-directory: ./services/reimbursement_api
+      run: |
+        docker build -t report-service .
+        echo "Docker image built successfully"
 ```
+
+**Deployment Integration:**
+
+To deploy the built Docker images to ECS, GitHub Actions needs to be integrated with AWS ECR and ECS (e.g., via AWS CodeDeploy or directly via `aws ecs update-service`). This typically involves configuring IAM roles and credentials so that GitHub Actions has the necessary permissions for deployment.
+
 
 ## Cleanup
 

@@ -1,12 +1,13 @@
-from typing import Dict, List, Optional, Tuple
+from datetime import datetime, timezone
+
 from sqlalchemy import text
 from sqlalchemy.orm import joinedload
-from reimbursement_api.infrastructure.database import db
-from reimbursement_api.domain.models import Report
+
 from reimbursement_api.application.report_aggregation_service import (
     ReportAggregationService,
-    StateTransitionError,
 )
+from reimbursement_api.domain.models import Report
+from reimbursement_api.infrastructure.database import db
 
 
 class ReviewService:
@@ -17,11 +18,11 @@ class ReviewService:
 
     def get_review_inbox(
         self,
-        status: Optional[str] = None,
+        status: str | None = None,
         page: int = 1,
         per_page: int = 20,
-        assigned_to: Optional[str] = None,
-    ) -> Dict:
+        assigned_to: str | None = None,
+    ) -> dict:
         """
         Get reports that are pending review.
 
@@ -35,10 +36,7 @@ class ReviewService:
             Dictionary with paginated reports and metadata
         """
         # Default to showing reports that need review
-        if not status:
-            status_filter = ["SUBMITTED", "REVIEW_PENDING"]
-        else:
-            status_filter = [status]
+        status_filter = ["SUBMITTED", "REVIEW_PENDING"] if not status else [status]
 
         query = (
             Report.query.filter(Report.status.in_(status_filter))
@@ -46,16 +44,14 @@ class ReviewService:
             .order_by(Report.submitted_at.desc().nulls_last())
         )
 
-        pagination = query.paginate(
-            page=page, per_page=per_page, error_out=False
-        )
+        pagination = query.paginate(page=page, per_page=per_page, error_out=False)
 
         reports_data = []
         for report in pagination.items:
             report_dict = report.to_dict()
             report_dict["receipt_count"] = len(report.receipts)
             report_dict["pending_for_hours"] = (
-                (datetime.utcnow() - report.submitted_at).total_seconds() / 3600
+                (datetime.now(timezone.utc) - report.submitted_at).total_seconds() / 3600
                 if report.submitted_at
                 else None
             )
@@ -77,7 +73,7 @@ class ReviewService:
             },
         }
 
-    def get_report_details_for_review(self, report_id: int) -> Dict:
+    def get_report_details_for_review(self, report_id: int) -> dict:
         """
         Get detailed information about a report for review purposes.
         Includes audit trail and validation details.
@@ -108,8 +104,8 @@ class ReviewService:
         report_id: int,
         reviewer_id: str,
         reviewer_email: str,
-        approval_notes: Optional[str] = None,
-    ) -> Tuple[Dict, str]:
+        approval_notes: str | None = None,
+    ) -> tuple[dict, str]:
         """
         Approve a report as part of the review process.
         Records reviewer information in audit log.
@@ -142,9 +138,8 @@ class ReviewService:
         report_id: int,
         reviewer_id: str,
         reviewer_email: str,
-        rejection_reason: str,
-        rejection_notes: Optional[str] = None,
-    ) -> Tuple[Dict, str]:
+        reason: str,
+    ) -> tuple[dict, str]:
         """
         Reject a report as part of the review process.
         Records reviewer information and reason in audit log.
@@ -159,23 +154,18 @@ class ReviewService:
         Returns:
             Tuple of (updated_report, rejection_message)
         """
-        if not rejection_reason:
+        if not reason:
             raise ValueError("Rejection reason is required")
-
-        # Combine reason and notes
-        full_reason = rejection_reason
-        if rejection_notes:
-            full_reason += f"\n\nAdditional notes: {rejection_notes}"
 
         # Reject the report
         updated_report = self.aggregation_service.reject_report(
             report_id=report_id,
-            rejection_reason=full_reason,
+            rejection_reason=reason,
             user_id=reviewer_id,
             user_email=reviewer_email,
         )
 
-        message = f"Report rejected. Reason: {rejection_reason}"
+        message = f"Report rejected. Reason: {reason}"
 
         return updated_report, message
 
@@ -185,7 +175,7 @@ class ReviewService:
         reviewer_id: str,
         reviewer_email: str,
         change_requests: str,
-    ) -> Tuple[Dict, str]:
+    ) -> tuple[dict, str]:
         """
         Request changes on a report and return it to draft status.
 
@@ -224,7 +214,7 @@ class ReviewService:
 
         return updated_report, message
 
-    def get_review_statistics(self) -> Dict:
+    def get_review_statistics(self) -> dict:
         """
         Get statistics about reports in the review queue.
 

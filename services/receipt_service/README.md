@@ -18,10 +18,22 @@ Handles receipt CRUD operations, storage management, and receipt validation resu
 
 ## Events
 
-Publishes events to Message Bus:
+Publishes events to AWS SNS Topic:
 - `receipt.created` - When a new receipt is uploaded
 - `receipt.ocr_completed` - When OCR processing finishes
 - `receipt.validated` - When validation completes
 
-Consumes events:
+Consumes events (e.g., from SNS subscriptions):
 - `report.deleted` - Clean up receipts for deleted reports
+
+## Security
+
+- JWT-based authentication with secret management via AWS Secrets Manager.
+
+## Data Model
+
+- Manages `Receipt` and `ValidationResult` models. The `ValidationResult` model has been logically decoupled from `Receipt` to support eventual independent databases.
+
+## Observability
+
+- Emits structured JSON logs for better monitoring and debugging.
