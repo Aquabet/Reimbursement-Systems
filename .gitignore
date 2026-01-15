@@ -154,3 +154,13 @@ Thumbs.db
 # Project specific
 uploads/
 *.db
+
+# Ruff
+.ruff_cache/
+
+# Claude
+tmpclaude-*/
+.claude/
+
+# Gemini
+GEMINI.md
